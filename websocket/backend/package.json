@@ -3,6 +3,6 @@
     "nodemon": "^2.0.22"
   },
   "scripts": {
-    "serve": "nodemon index.js"
+    "serve": "nodemon ./src/index.js"
   }
 }

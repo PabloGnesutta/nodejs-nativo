@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Web sockets :D</title>
+  </head>
+  <body>
+    <script>
+      const log = console.log;
+
+      const ws = new WebSocket('ws://localhost:3000');
+      ws.onopen = e => {
+        log('open', e);
+
+        setTimeout(() => {
+          ws.send(
+            JSON.stringify({
+              name: 'mac',
+              age: 33,
+              name2: 'mac',
+              age2: 33,
+              name3: 'mac',
+              age3: 33,
+              _name: 'mac',
+              _age: 33,
+              _name2: 'mac',
+              _age2: 33,
+              _name3: 'mac',
+              _age3: 33,
+              __name: 'mac',
+              __age: 33,
+              __name2: 'mac',
+              __age2: 33,
+              __name3: 'mac',
+              __age3: 33,
+            })
+          );
+        }, 1000);
+      };
+      ws.onmessage = e => log('message', e);
+      ws.onerror = e => log('error', e);
+    </script>
+  </body>
+</html>

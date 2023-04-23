@@ -30,7 +30,8 @@ const broadcast = (msg, channel) => {
  */
 function readSocket(_s, clientId) {
   const [b1] = _s.read(1);
-  // if bit=1, this is the final frame of the current message
+
+  // if first bit=1, this is the final frame of the current message
   if (!(b1 & 0x80) === 0x80) {
     // 0x80=1000
     log('FIN=0. Message will continue on subsecuent frames');
@@ -40,10 +41,6 @@ function readSocket(_s, clientId) {
   log('opCode ', opCode);
 
   switch (opCode) {
-    case 0x8:
-      log(' - connection closed');
-      _s.destroy();
-      return;
     case 0x0:
       log(' - opCode=0. Message will continue on subsecuent frames');
       break;
@@ -52,6 +49,10 @@ function readSocket(_s, clientId) {
       break;
     case 0x2:
       log(' - Binary frame: not supported');
+      _s.destroy();
+      return;
+    case 0x8:
+      log(' - Connection closed');
       _s.destroy();
       return;
     default:

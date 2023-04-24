@@ -2,7 +2,7 @@ const { log } = require('./utils/utils');
 
 const WS_MAX_RESPONSE_LENGTH = 65535;
 
-const clients = [];
+const clientsIds = [];
 const sockets = [];
 
 let idCount = 0;
@@ -11,9 +11,22 @@ const registerClient = _s => {
   const clientId = ++idCount;
 
   sockets.push(_s);
-  clients.push(clientId);
+  clientsIds.push(clientId);
 
   _s.on('readable', () => readSocket(_s, clientId));
+
+  _s.on('close', () => {
+    log('socket closed');
+    _s.destroy();
+    const index = clientsIds.findIndex(id => id === clientId);
+    sockets.splice(index, 1);
+    clientsIds.splice(index, 1);
+    log(sockets);
+  });
+
+  _s.on('end', () => log('end'));
+  _s.on('error', () => log('errord'));
+
   // _s.on('data', chunk => {});
 };
 
@@ -99,8 +112,8 @@ function readSocket(_s, clientId) {
 
     sendMessage(_s, { type: 'ACKNOWLEDGE' });
 
-    if (jsonData.type === 'broadcast from client') {
-      broadcast({ type: ' * MEGA BROADCAST * ' });
+    if (jsonData.type === 'BROADCAST') {
+      broadcast({ type: 'CHAT-MESSAGE', msg: jsonData.msg });
     }
   } catch (error) {
     return log('Invalid JSON:', unmaskedData);
@@ -159,7 +172,7 @@ function sendMessage(_s, _msg) {
 }
 
 module.exports = {
-  clients,
+  clientsIds,
   broadcast,
   registerClient,
 };

@@ -4,35 +4,107 @@
     <meta charset="UTF-8" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="css/style.css" />
     <title>Web sockets :D</title>
   </head>
   <body>
-    <br />
-    <button onclick="broadcast()">BROADCAST TO ALL CLIENTS</button>
+    <div id="app">
+      <!-- Open two tabs with this page and start chatting! -->
+      <h4>Chat</h4>
+
+      <div id="chat-area" class="chat-area">
+        <!-- Messages will be displayed here  -->
+      </div>
+
+      <div>
+        <form class="send-message-form" onsubmit="sendChatMessage(event)">
+          <input id="msg" type="text" oninput="setButtonState(event)" />
+          <button id="send-btn" type="submit" disabled>SEND</button>
+        </form>
+      </div>
+
+      <br />
+      <br />
+      <button onclick="closeSocket()">close socket</button>
+    </div>
 
     <script>
       const log = console.log;
+      const msgInput = document.getElementById('msg');
+      const chatArea = document.getElementById('chat-area');
+      const sendBtn = document.getElementById('send-btn');
+
+      let isWSOpen = false;
 
       const ws = new WebSocket('ws://localhost:3000');
 
       ws.onopen = e => {
-        log('open', e);
-
-        setTimeout(() => {
-          ws.send(JSON.stringify({ name: 'mac', age: 33 }));
-        }, 1000);
+        log('websocket connection established');
+        isWSOpen = true;
       };
 
-      ws.onmessage = e => log('message', e.data);
+      ws.onerror = e => flushSocket('ERROR');
+      ws.onclose = e => flushSocket('CLOSE');
 
-      ws.onerror = e => log('error', e);
+      function flushSocket(cause) {
+        log('websocket closed because of', cause, 'event');
+        ws.onmessage = null;
+        ws.onerror = null;
+        ws.onclose = null;
+        ws.onopen = null;
+        isWSOpen = false;
+      }
 
-      function broadcast() {
+      ws.onmessage = e => {
+        const jsonData = JSON.parse(e.data);
+
+        log('incoming message', jsonData);
+
+        switch (jsonData.type) {
+          case 'CHAT-MESSAGE': {
+            const msgRow = document.createElement('span');
+            msgRow.innerText = jsonData.msg;
+            chatArea.appendChild(msgRow);
+            break;
+          }
+          case 'ACKNOWLEDGE': {
+            log('message successfully sent to websocket server');
+          }
+          default: {
+            break;
+          }
+        }
+      };
+
+      function broadcast(msg) {
+        if (!isWSOpen) {
+          return log('websocket is closed');
+        }
+
         ws.send(
           JSON.stringify({
-            type: 'broadcast from client',
+            type: 'BROADCAST',
+            msg,
           })
         );
+      }
+
+      function closeSocket() {
+        if (!isWSOpen) {
+          return log('websocket is already closed');
+        }
+
+        ws.close();
+      }
+
+      function setButtonState(e) {
+        sendBtn.disabled = e.target.value ? false : true;
+      }
+
+      function sendChatMessage(e) {
+        e.preventDefault();
+        broadcast(msgInput.value);
+        msgInput.value = '';
       }
     </script>
   </body>

@@ -1,43 +1,110 @@
+const { joinRandomRoom, rooms } = require('./rooms');
 const { log } = require('./utils/utils');
 
 const WS_MAX_RESPONSE_LENGTH = 65535;
 
-const clientsIds = [];
+const clientIds = [];
 const sockets = [];
 
 let idCount = 0;
 
-const registerClient = _s => {
+function registerClient(_s) {
   const clientId = ++idCount;
 
   sockets.push(_s);
-  clientsIds.push(clientId);
+  clientIds.push(clientId);
+
+  sendMessage(_s, { type: 'CLIENT_REGISTERED', clientId });
 
   _s.on('readable', () => readSocket(_s, clientId));
 
-  _s.on('close', () => {
-    log('socket closed');
-    _s.destroy();
-    const index = clientsIds.findIndex(id => id === clientId);
-    sockets.splice(index, 1);
-    clientsIds.splice(index, 1);
-    log(sockets);
-  });
+  _s.on('close', () => flushSocket(_s, clientId));
 
   _s.on('end', () => log('end'));
-  _s.on('error', () => log('errord'));
+  _s.on('error', () => log('error'));
 
   // _s.on('data', chunk => {});
-};
+}
 
-const broadcast = (msg, channel) => {
+function flushSocket(_s, clientId) {
+  log('socket closed');
+
+  _s.destroy();
+  const index = clientIds.findIndex(id => id === clientId);
+  sockets.splice(index, 1);
+  clientIds.splice(index, 1);
+  // TODO: Remove client from rooms
+}
+
+function sendMsgToAll(msg, clientId) {
   sockets.forEach(_s => {
-    sendMessage(_s, msg);
+    sendMessage(_s, msg, clientId);
   });
-};
+}
+
+function sendMsgToChannel(roomId, msg, clientId) {
+  const room = rooms.find(r => r.id === roomId);
+  if (!room) return log(' * Room not found');
+
+  log('room', room);
+  const roomClientIds = room.activeClientIds;
+  log('roomClientIds', roomClientIds);
+
+  roomClientIds.forEach(roomClientId => {
+    const index = clientIds.findIndex(client => client === roomClientId);
+    log(index);
+    if (index === -1) {
+      log(' * client not found');
+    } else {
+      sendMessage(sockets[index], { type: 'ROOM_MESSAGE', msg, clientId });
+    }
+  });
+}
+
+function processMessage(_s, clientId, data) {
+  log('processMessage', data);
+
+  // sendMessage(_s, { type: 'ACKNOWLEDGE', clientId });
+
+  switch (data.type) {
+    case 'JOIN_ROOM': {
+      const room = joinRandomRoom(clientId);
+      sendMessage(_s, { type: 'ROOM_JOINED', room });
+      break;
+    }
+
+    case 'LEAVE_ROOM': {
+      const room = rooms.find(r => r.id === data.roomId);
+      if (!room) {
+        return log('Room does not exist');
+      }
+      const clientIndex = room.activeClientIds.findIndex(
+        roomClientId => roomClientId === clientId
+      );
+      if (clientIndex === -1) {
+        return log('Client not found in room');
+      }
+      room.activeClientIds.splice(clientIndex, 1);
+      room.activeClientsCount--;
+      sendMessage(_s, { type: 'ROOM_LEFT', roomId: data.roomId });
+      break;
+    }
+
+    case 'ROOM_MESSAGE':
+      sendMsgToChannel(data.roomId, data.msg, clientId);
+      break;
+
+    case 'ALL_MESSAGE':
+      sendMsgToAll({ type: 'TO_ALL_MESSAGE', msg: data.msg, clientId });
+      break;
+
+    default:
+      log(' * Invalid message type');
+      break;
+  }
+}
 
 /**
- *
  * @param {Socket} _s
  * @returns {void}
  */
@@ -51,7 +118,6 @@ function readSocket(_s, clientId) {
   }
 
   const opCode = b1 & 0xf; // 0xF=1111
-  log('opCode ', opCode);
 
   switch (opCode) {
     case 0x0:
@@ -108,13 +174,7 @@ function readSocket(_s, clientId) {
 
   try {
     const jsonData = JSON.parse(unmaskedData);
-    log('jsonData', jsonData);
-
-    sendMessage(_s, { type: 'ACKNOWLEDGE' });
-
-    if (jsonData.type === 'BROADCAST') {
-      broadcast({ type: 'CHAT-MESSAGE', msg: jsonData.msg });
-    }
+    processMessage(_s, clientId, jsonData);
   } catch (error) {
     return log('Invalid JSON:', unmaskedData);
   }
@@ -138,17 +198,17 @@ function readSocket(_s, clientId) {
 function sendMessage(_s, _msg) {
   const msg = JSON.stringify(_msg);
 
-  const msgBuff = Buffer.from(msg);
-  const msgLen = msgBuff.byteLength;
-  log('msgLen', msgLen);
+  const msgBuffer = Buffer.from(msg);
+  const msgByteLength = msgBuffer.byteLength;
 
-  let header;
-  let lenByte = msgLen;
-  if (msgLen > 125) {
-    if (msgLen < WS_MAX_RESPONSE_LENGTH) {
+  let headerBuffer;
+  let lengthByte = msgByteLength;
+
+  if (msgByteLength > 125) {
+    if (msgByteLength < WS_MAX_RESPONSE_LENGTH) {
       // 16 bits
-      lenByte = 126;
-      header = Buffer.allocUnsafe(4);
+      lengthByte = 126;
+      headerBuffer = Buffer.allocUnsafe(4);
     } else {
       // 64 bits messages not supported
       log('Response message too large');
@@ -156,23 +216,20 @@ function sendMessage(_s, _msg) {
     }
   } else {
     // 7 bits
-    header = Buffer.allocUnsafe(2);
+    headerBuffer = Buffer.allocUnsafe(2);
   }
-  log('lenbyte', lenByte);
 
-  header.writeUInt8(0b10000001, 0); // FIN=1 - OpCode=1
-  header.writeUInt8(lenByte, 1);
+  headerBuffer.writeUInt8(0b10000001, 0); // FIN=1 - OpCode=1
+  headerBuffer.writeUInt8(lengthByte, 1);
 
-  if (lenByte === 126) {
+  if (lengthByte === 126) {
     // Extended length
-    header.writeInt16BE(msgLen, 2);
+    headerBuffer.writeInt16BE(msgByteLength, 2);
   }
 
-  _s.write(Buffer.concat([header, msgBuff]));
+  _s.write(Buffer.concat([headerBuffer, msgBuffer]));
 }
 
 module.exports = {
-  clientsIds,
-  broadcast,
   registerClient,
 };
